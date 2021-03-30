@@ -1,0 +1,4 @@
+build/
+dist/
+mythic_translator_container.egg-info/
+mythic_translator_container/.DS_Store
