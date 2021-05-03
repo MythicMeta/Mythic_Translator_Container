@@ -7,6 +7,7 @@ import asyncio
 import pathlib
 from importlib import import_module, invalidate_caches
 from functools import partial
+from .config import settings
 
 credentials = None
 connection_params = None
@@ -14,6 +15,11 @@ hostname = ""
 exchange = None
 debug = False
 
+container_version = "3"
+
+def print_flush(msg):
+    print(msg)
+    sys.stdout.flush()
 
 def import_all_c2_functions():
     import glob
@@ -28,8 +34,8 @@ def import_all_c2_functions():
                     if "__" not in el:
                         globals()[el] = getattr(module, el)
     except Exception as e:
-        print("[-] import_all_c2_functions ran into an error: {}".format(str(e)))
-        sys.stdout.flush()
+        print_flush("[-] import_all_c2_functions ran into an error: {}".format(str(e)))
+        sys.exit(1)
 
 
 async def rabbit_c2_rpc_callback(
@@ -39,35 +45,32 @@ async def rabbit_c2_rpc_callback(
     with message.process():
         try:
             if debug:
-                print("got message: {}".format(message.body.decode()))
-                sys.stdout.flush()
+                print_flush("got message: {}".format(message.body.decode()))
             request = json.loads(message.body.decode())
+            if request["action"] == "exit_container":
+                print_flush("[*] Got exit container command, exiting!")
+                sys.exit(1)
             response = await globals()[request["action"]](request)
             if request["action"] != "translate_to_c2_format":
                 response = json.dumps(response).encode()
             if debug:
-                print("sending response: {}".format(response))
-                sys.stdout.flush()
+                print_flush("sending response: {}".format(response))
         except Exception as e:
-            print("[-] Error in trying to process a message from mythic: {}".format(str(e)))
-            sys.stdout.flush()
+            print_flush("[-] Error in trying to process a message from mythic: {}".format(str(e)))
             response = b""
         try:
             if debug:
-                print("sending message back to mythic")
-                sys.stdout.flush()
+                print_flush("sending message back to mythic")
             await exchange.publish(
                 aio_pika.Message(body=response, correlation_id=message.correlation_id),
                 routing_key=message.reply_to,
             )
             if debug:
-                print("sent message back to mythic")
-                sys.stdout.flush()
+                print_flush("sent message back to mythic")
         except Exception as e:
-            print(
+            print_flush(
                 "[-] Exception trying to send message back to container for rpc! " + str(e)
             )
-            sys.stdout.flush()
 
 
 async def mythic_service(debugSetting):
@@ -77,99 +80,120 @@ async def mythic_service(debugSetting):
     debug = debugSetting
     connection = None
     try:
-        if debug:
-            print("[*] about to open rabbitmq_config.json")
-            sys.stdout.flush()
-        config_file = open("rabbitmq_config.json", "rb")
-        main_config = json.loads(config_file.read().decode("utf-8"))
-        config_file.close()
-        if debug:
-            print("[*] Parsed the config file")
-            sys.stdout.flush()
-        if main_config["name"] == "hostname":
+        hostname = settings.get("name", "hostname")
+        if hostname == "hostname":
             hostname = socket.gethostname()
-        else:
-            hostname = main_config["name"]
         if debug:
-            print("[*] got Hostname, now to import c2 functions")
-            sys.stdout.flush()
+            print_flush("[*] got Hostname, now to import c2 functions")
         import_all_c2_functions()
         if debug:
-            print("[*] imported functions, now to start the connection loop")
-            sys.stdout.flush()
+            print_flush("[*] imported functions, now to start the connection loop")
         while connection is None:
             try:
                 if debug:
-                    print("[*] about to try to connect_robust to rabbitmq")
-                    sys.stdout.flush()
+                    print_flush("[*] about to try to connect_robust to rabbitmq")
                 connection = await aio_pika.connect_robust(
-                    host=main_config["host"],
-                    login=main_config["username"],
-                    password=main_config["password"],
-                    virtualhost=main_config["virtual_host"],
+                    host=settings.get("host", "127.0.0.1"),
+                    login=settings.get("username", "mythic_user"),
+                    password=settings.get("password", "mythic_password"),
+                    virtualhost=settings.get("virtual_host", "mythic_vhost"),
                 )
                 if debug:
-                    print("[*] successfully connected, now to connect to the channel")
-                    sys.stdout.flush()
+                    print_flush("[*] successfully connected, now to connect to the channel")
                 channel = await connection.channel()
                 # get a random queue that only the apfell server will use to listen on to catch all heartbeats
                 if debug:
-                    print("[*] About to declare queue")
-                    sys.stdout.flush()
+                    print_flush("[*] About to declare queue")
                 queue = await channel.declare_queue("{}_rpc_queue".format(hostname), auto_delete=True)
                 if debug:
-                    print("[*] Declared queue")
-                    sys.stdout.flush()
+                    print_flush("[*] Declared queue")
                 await channel.set_qos(prefetch_count=50)
                 try:
                     task = queue.consume(
                         partial(rabbit_c2_rpc_callback, channel.default_exchange)
                     )
                     if debug:
-                        print("[*] created task to queue.consume")
-                        sys.stdout.flush()
-                    result = await asyncio.wait_for(task, None)
+                        print_flush("[*] created task to queue.consume")
+                    print_flush("[+] Successfully connected to rabbitmq queue for RPC with container version " + container_version)
                 except Exception as q:
                     if debug:
-                        print("[*] Hit an exception when trying to consume the queue")
-                        sys.stdout.flush()
-                    print("[-] Exception in connect_and_consume .consume: {}\n trying again...".format(str(q)))
-                    sys.stdout.flush()
+                        print_flush("[*] Hit an exception when trying to consume the queue")
+                    print_flush("[-] Exception in connect_and_consume .consume: {}\n trying again...".format(str(q)))
             except (ConnectionError, ConnectionRefusedError) as c:
                 if debug:
-                    print("[*] hit a connection error when trying to connect to rabbitmq or the channel")
-                    sys.stdout.flush()
-                print("[-] Connection to rabbitmq failed, trying again...")
-                sys.stdout.flush()
+                    print_flush("[*] hit a connection error when trying to connect to rabbitmq or the channel")
+                print_flush("[-] Connection to rabbitmq failed, trying again...")
             except Exception as e:
                 if debug:
-                    print("[*] hit a generic error when trying to do initial setup and connection")
-                    sys.stdout.flush()
-                print("[-] Exception in connect_and_consume_rpc connect: {}\n trying again...".format(str(e)))
-                # print("Exception in connect_and_consume connect: {}".format(str(e)))
-                sys.stdout.flush()
+                    print_flush("[*] hit a generic error when trying to do initial setup and connection")
+                print_flush("[-] Exception in connect_and_consume_rpc connect: {}\n trying again...".format(str(e)))
             if debug:
-                print("[*] Repeating outer loop while connection is None")
-                sys.stdout.flush()
+                print_flush("[*] Repeating outer loop while connection is None")
             await asyncio.sleep(2)
     except Exception as f:
-        print("[-] Exception in main mythic_service: {}".format(str(f)))
-        sys.stdout.flush()
+        print_flush("[-] Exception in main mythic_service, exiting: {}".format(str(f)))
+        sys.exit(1)
 
-def start_service(debug = False):
+async def heartbeat_loop(debug: bool):
+    connection = None
+    hostname = settings.get("name", "hostname")
+    if hostname == "hostname":
+        hostname = socket.gethostname()
+    while connection is None:
+        try:
+            if debug:
+                print_flush("Connecting to rabbitmq from heartbeat_loop")
+            connection = await aio_pika.connect_robust(
+                host=settings.get("host", "127.0.0.1"),
+                login=settings.get("username", "mythic_user"),
+                password=settings.get("password", "mythic_password"),
+                virtualhost=settings.get("virtual_host", "mythic_vhost"),
+            )
+            if debug:
+                print_flush("Successfully connected to rabbitmq from heartbeat_loop")
+            channel = await connection.channel()
+            if debug:
+                print_flush("Declaring exchange in heartbeat_loop for channel")
+            exchange = await channel.declare_exchange(
+                "mythic_traffic", aio_pika.ExchangeType.TOPIC
+            )
+        except (ConnectionError, ConnectionRefusedError) as c:
+            print_flush("Connection to rabbitmq failed, trying again...")
+            await asyncio.sleep(3)
+            continue
+        except Exception as e:
+            print_flush("Exception in heartbeat_loop: " + str(e))
+            await asyncio.sleep(3)
+            continue
+        print_flush("[+] Successfully connected to rabbitmq for sending heartbeats")
+        while True:
+            try:
+                # routing key is ignored for fanout, it'll go to anybody that's listening, which will only be the server
+                if debug:
+                    print_flush("Sending heartbeat in heartbeat_loop")
+                await exchange.publish(
+                    aio_pika.Message("heartbeat".encode()),
+                    routing_key="tr.heartbeat.{}.{}".format(hostname, container_version),
+                )
+                await asyncio.sleep(10)
+            except Exception as e:
+                print_flush("Exception in heartbeat_loop trying to send heartbeat: " + str(e))
+                # if we get an exception here, break out to the bigger loop and try to connect again
+                break
+
+def start_service_and_heartbeat(debug = False):
     # start our service
     if debug:
-        print("[*] entered start_service")
-        sys.stdout.flush()
+        print_flush("[*] entered start_service")
     loop = asyncio.get_event_loop()
     if debug:
-        print("[*] got event loop")
-        sys.stdout.flush()
-    loop.create_task(mythic_service(debug))
+        print_flush("[*] got event loop")
     if debug:
-        print("[*] created task for mythic_service")
-        sys.stdout.flush()
+        print_flush("[*] created task for mythic_service and heartbeat")
+    asyncio.gather(mythic_service(debug), heartbeat_loop(debug))  
     loop.run_forever()
     if debug:
-        print("[*] finished loop.run_forever()")
-        sys.stdout.flush()
+        print_flush("[*] finished loop.run_forever()")
+
+def get_version_info():
+    print_flush("[*] Mythic Translator Version: " + container_version)
