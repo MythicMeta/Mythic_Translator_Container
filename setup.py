@@ -10,7 +10,7 @@ README = (HERE / "README.md").read_text()
 # This call to setup() does all the work
 setup(
     name="mythic_translator_container",
-    version="0.0.9",
+    version="0.0.13",
     description="Functionality for Mythic C2 Translator Containers",
     long_description=README,
     long_description_content_type="text/markdown",
@@ -25,7 +25,7 @@ setup(
     ],
     packages=["mythic_translator_container"],
     include_package_data=True,
-    install_requires=["aio_pika", "dynaconf"],
+    install_requires=["pika", "dynaconf"],
     entry_points={
     },
 )

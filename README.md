@@ -12,7 +12,7 @@ pip install mythic-translator-container
 
 ## How to use
 
-Version 0.0.9 of the `mythic_translator_container` package supports version 2.2.2 of the Mythic project.
+Version 0.0.10 of the `mythic_translator_container` package supports version 2.2.2 of the Mythic project.
 
 For the main execution of the heartbeat and service functionality, simply import and start the service:
 ```
