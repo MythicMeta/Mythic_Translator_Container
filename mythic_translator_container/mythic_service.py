@@ -19,7 +19,7 @@ LOG_FORMAT = ('%(levelname) -4s %(asctime)s %(name) -5s %(funcName) '
               '-3s %(lineno) -5d: %(message)s\n')
 LOGGER = logging.getLogger(__name__)
 
-container_version = "3"
+container_version = "4"
 container_pypi_version = "0.0.14"
 
 operating_environment = "production"
@@ -507,7 +507,7 @@ async def rabbit_c2_rpc_callback(_unused_channel, basic_deliver, properties, bod
         if request["action"] == "exit_container":
             print_flush("[*] Got exit container command, exiting!")
             sys.exit(1)
-        response = await globals()[request["action"]](request)
+        response = await globals()[request["action"]](request["message"])
         if request["action"] != "translate_to_c2_format":
             response = json.dumps(response).encode()
         print_flush("sending response: {}".format(response))
