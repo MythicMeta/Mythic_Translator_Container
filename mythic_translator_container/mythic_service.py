@@ -99,7 +99,7 @@ class ExampleConsumer(object):
         :rtype: pika.SelectConnection
 
         """
-        print_flush('Connecting to %s', self._url)
+        print_flush('Connecting to {}'.format(self._url))
         return pika.SelectConnection(
             parameters=pika.URLParameters(self._url),
             on_open_callback=self.on_connection_open,
@@ -215,7 +215,7 @@ class ExampleConsumer(object):
         :param str|unicode exchange_name: The name of the exchange to declare
 
         """
-        print_flush('Declaring exchange: %s', exchange_name)
+        print_flush('Declaring exchange: {}'.format(exchange_name))
         # Note: using functools.partial is not required, it is demonstrating
         # how arbitrary data can be passed to the callback when it is called
         if self._is_heartbeat:
@@ -236,7 +236,7 @@ class ExampleConsumer(object):
         :param str|unicode userdata: Extra user data (exchange name)
 
         """
-        print_flush('Exchange declared: %s', userdata)
+        print_flush('Exchange declared: {}'.format(userdata))
         self.setup_queue(self._QUEUE)
 
     def setup_queue(self, queue_name):
@@ -247,7 +247,7 @@ class ExampleConsumer(object):
         :param str|unicode queue_name: The name of the queue to declare.
 
         """
-        print_flush('Declaring queue %s', queue_name)
+        print_flush('Declaring queue {}'.format(queue_name))
         cb = partial(self.on_queue_declareok, userdata=queue_name)
         self._channel.queue_declare(queue=queue_name, callback=cb, auto_delete=True)
 
@@ -284,7 +284,7 @@ class ExampleConsumer(object):
         :param str|unicode userdata: Extra user data (queue name)
 
         """
-        print_flush('Queue bound: %s', userdata)
+        print_flush('Queue bound: {}'.format(userdata))
         self.set_qos()
     
     def set_qos(self):
@@ -305,7 +305,7 @@ class ExampleConsumer(object):
         :param pika.frame.Method _unused_frame: The Basic.QosOk response frame
 
         """
-        print_flush('QOS set to: %d', self._prefetch_count)
+        print_flush('QOS set to: {}'.format(self._prefetch_count))
         self.start_consuming()
 
     def start_consuming(self):
@@ -330,7 +330,7 @@ class ExampleConsumer(object):
             
 
     def on_message(self, _unused_channel, basic_deliver, properties, body):
-        print_flush('Received message # %s from %s: %s', basic_deliver.delivery_tag, properties.app_id, body)
+        print_flush('Received message # {} from {}: {}'.format(basic_deliver.delivery_tag, properties.app_id, body))
         self._loop.run_until_complete(self._message_callback(_unused_channel, basic_deliver, properties, body))
 
     def add_on_cancel_callback(self):
@@ -349,8 +349,7 @@ class ExampleConsumer(object):
         :param pika.frame.Method method_frame: The Basic.Cancel frame
 
         """
-        print_flush('Consumer was cancelled remotely, shutting down: %r',
-                    method_frame)
+        print_flush('Consumer was cancelled remotely, shutting down: {}'.format(method_frame))
         if self._channel:
             self._channel.close()
 
@@ -377,8 +376,7 @@ class ExampleConsumer(object):
         """
         self._consuming = False
         print_flush(
-            'RabbitMQ acknowledged the cancellation of the consumer: %s',
-            userdata)
+            'RabbitMQ acknowledged the cancellation of the consumer: {}'.format(userdata))
         self.close_channel()
 
     def close_channel(self):
@@ -394,8 +392,7 @@ class ExampleConsumer(object):
         message to be delivered in PUBLISH_INTERVAL seconds.
         """
 
-        print_flush('Scheduling next message for %0.1f seconds',
-                    self.PUBLISH_INTERVAL)
+        print_flush('Scheduling next message for {} seconds'.format(self.PUBLISH_INTERVAL))
         self._connection.ioloop.call_later(self.PUBLISH_INTERVAL,
                                            self.send_heartbeat)
 
@@ -496,9 +493,9 @@ async def rabbit_c2_rpc_callback(_unused_channel, basic_deliver, properties, bod
     :param bytes body: The message body
 
     """
-    print_flush('Received message # %s from %s: %s',
-                basic_deliver.delivery_tag, properties.app_id, body)
-    print_flush('Acknowledging message %s', basic_deliver.delivery_tag)
+    print_flush('Received message # {} from {}: {}'.format(
+                basic_deliver.delivery_tag, properties.app_id, body))
+    print_flush('Acknowledging message {}'.format(basic_deliver.delivery_tag))
     _unused_channel.basic_ack(basic_deliver.delivery_tag)
 
     try:
