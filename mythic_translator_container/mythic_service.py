@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from distutils.debug import DEBUG
 import aio_pika
 import sys
 import json
@@ -13,38 +14,58 @@ import time
 import pika
 from pika.exchange_type import ExchangeType
 import threading
-debug = False
 
-LOG_FORMAT = ('%(levelname) -4s %(asctime)s %(name) -5s %(funcName) '
-              '-3s %(lineno) -5d: %(message)s\n')
+LOG_FORMAT = (
+    "%(levelname) -4s %(asctime)s %(name) -5s %(funcName) "
+    "-3s %(lineno) -5d: %(message)s"
+)
 LOGGER = logging.getLogger(__name__)
 
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+
+LOG_LEVEL = logging.WARNING
+
 container_version = "4"
-container_pypi_version = "0.0.14"
+container_pypi_version = "0.0.16"
 
-operating_environment = "production"
 
-def print_flush(msg, override: bool = False):
-    global operating_environment
-    if operating_environment in ["development", "testing", "staging"] or override:
-        LOGGER.debug(msg)
+def print_flush(msg, log_level: int = logging.INFO, override: bool = False):
+    if log_level > LOG_LEVEL or override:
+        if log_level == logging.INFO:
+            logging.info(msg)
+        elif log_level == logging.DEBUG:
+            logging.debug(msg)
+        elif log_level == logging.WARNING:
+            logging.warning(msg)
+        elif log_level == logging.CRITICAL:
+            logging.critical(msg)
+        else:
+            logging.info(msg)
         sys.stdout.flush()
+
 
 def import_all_c2_functions():
     import glob
+
     try:
         # Get file paths of all modules.
         modules = glob.glob("c2_functions/*.py")
         invalidate_caches()
         for x in modules:
             if not x.endswith("__init__.py") and x[-3:] == ".py":
-                module = import_module("c2_functions." + pathlib.Path(x).stem, package=None)
+                module = import_module(
+                    "c2_functions." + pathlib.Path(x).stem, package=None
+                )
                 for el in dir(module):
                     if "__" not in el:
                         globals()[el] = getattr(module, el)
     except Exception as e:
-        print_flush("[-] import_all_c2_functions ran into an error: {}".format(str(e)))
+        print_flush(
+            "[-] import_all_c2_functions ran into an error: {}".format(str(e)),
+            log_level=logging.CRITICAL,
+        )
         sys.exit(1)
+
 
 class ExampleConsumer(object):
     """This is an example consumer that will handle unexpected interactions
@@ -59,11 +80,19 @@ class ExampleConsumer(object):
     commands that were issued and that should surface in the output as well.
 
     """
-    EXCHANGE = 'mythic_traffic'
+
+    EXCHANGE = "mythic_traffic"
     EXCHANGE_TYPE = ExchangeType.topic
     PUBLISH_INTERVAL = 10
 
-    def __init__(self, amqp_url, hostname: str, message_callback: callable, routing_key: str = None, is_heartbeat: bool = False):
+    def __init__(
+        self,
+        amqp_url,
+        hostname: str,
+        message_callback: callable,
+        routing_key: str = None,
+        is_heartbeat: bool = False,
+    ):
         """Create a new instance of the consumer class, passing in the AMQP
         URL used to connect to RabbitMQ.
 
@@ -73,8 +102,8 @@ class ExampleConsumer(object):
         asyncio.set_event_loop(asyncio.new_event_loop())
         self.should_reconnect = False
         self.was_consuming = False
-        self._hostname = hostname 
-        self._message_callback = message_callback 
+        self._hostname = hostname
+        self._message_callback = message_callback
         self._QUEUE = f"{hostname}_rpc_queue"
         self.ROUTING_KEY = f"{hostname}_rpc_queue"
         self._connection = None
@@ -99,19 +128,22 @@ class ExampleConsumer(object):
         :rtype: pika.SelectConnection
 
         """
-        print_flush('Connecting to {}'.format(self._url))
+        print_flush("Connecting to {}".format(self._url), log_level=logging.DEBUG)
         return pika.SelectConnection(
             parameters=pika.URLParameters(self._url),
             on_open_callback=self.on_connection_open,
             on_open_error_callback=self.on_connection_open_error,
-            on_close_callback=self.on_connection_closed)
+            on_close_callback=self.on_connection_closed,
+        )
 
     def close_connection(self):
         self._consuming = False
         if self._connection.is_closing or self._connection.is_closed:
-            print_flush('Connection is closing or already closed')
+            print_flush(
+                "Connection is closing or already closed", log_level=logging.DEBUG
+            )
         else:
-            print_flush('Closing connection')
+            print_flush("Closing connection", log_level=logging.DEBUG)
             self._connection.close()
 
     def on_connection_open(self, _unused_connection):
@@ -122,7 +154,7 @@ class ExampleConsumer(object):
         :param pika.SelectConnection _unused_connection: The connection
 
         """
-        print_flush('Connection opened')
+        print_flush("Connection opened", log_level=logging.DEBUG)
         self.open_channel()
 
     def on_connection_open_error(self, _unused_connection, err):
@@ -133,7 +165,7 @@ class ExampleConsumer(object):
         :param Exception err: The error
 
         """
-        LOGGER.error('Connection open failed: %s', err)
+        LOGGER.error("Connection open failed: %s", err)
         self.reconnect()
 
     def on_connection_closed(self, _unused_connection, reason):
@@ -150,7 +182,7 @@ class ExampleConsumer(object):
         if self._closing:
             self._connection.ioloop.stop()
         else:
-            LOGGER.warning('Connection closed, reconnect necessary: %s', reason)
+            LOGGER.warning("Connection closed, reconnect necessary: %s", reason)
             self.reconnect()
 
     def reconnect(self):
@@ -168,7 +200,7 @@ class ExampleConsumer(object):
         on_channel_open callback will be invoked by pika.
 
         """
-        print_flush('Creating a new channel')
+        print_flush("Creating a new channel", log_level=logging.DEBUG)
         self._connection.channel(on_open_callback=self.on_channel_open)
 
     def on_channel_open(self, channel):
@@ -180,7 +212,7 @@ class ExampleConsumer(object):
         :param pika.channel.Channel channel: The channel object
 
         """
-        print_flush('Channel opened')
+        print_flush("Channel opened", log_level=logging.DEBUG)
         self._channel = channel
         self.add_on_channel_close_callback()
         self.setup_exchange(self.EXCHANGE)
@@ -190,7 +222,7 @@ class ExampleConsumer(object):
         RabbitMQ unexpectedly closes the channel.
 
         """
-        print_flush('Adding channel close callback')
+        print_flush("Adding channel close callback", log_level=logging.DEBUG)
         self._channel.add_on_close_callback(self.on_channel_closed)
 
     def on_channel_closed(self, channel, reason):
@@ -204,7 +236,7 @@ class ExampleConsumer(object):
         :param Exception reason: why the channel was closed
 
         """
-        LOGGER.warning('Channel %i was closed: %s', channel, reason)
+        LOGGER.warning("Channel %i was closed: %s", channel, reason)
         self.close_connection()
 
     def setup_exchange(self, exchange_name):
@@ -215,16 +247,16 @@ class ExampleConsumer(object):
         :param str|unicode exchange_name: The name of the exchange to declare
 
         """
-        print_flush('Declaring exchange: {}'.format(exchange_name))
+        print_flush(
+            "Declaring exchange: {}".format(exchange_name), log_level=logging.DEBUG
+        )
         # Note: using functools.partial is not required, it is demonstrating
         # how arbitrary data can be passed to the callback when it is called
         if self._is_heartbeat:
-            cb = partial(
-            self.on_exchange_declareok, userdata=exchange_name)
+            cb = partial(self.on_exchange_declareok, userdata=exchange_name)
             self._channel.exchange_declare(
-                exchange=exchange_name,
-                exchange_type=self.EXCHANGE_TYPE,
-                callback=cb)
+                exchange=exchange_name, exchange_type=self.EXCHANGE_TYPE, callback=cb
+            )
         else:
             self.setup_queue(self._QUEUE)
 
@@ -236,7 +268,7 @@ class ExampleConsumer(object):
         :param str|unicode userdata: Extra user data (exchange name)
 
         """
-        print_flush('Exchange declared: {}'.format(userdata))
+        print_flush("Exchange declared: {}".format(userdata), log_level=logging.DEBUG)
         self.setup_queue(self._QUEUE)
 
     def setup_queue(self, queue_name):
@@ -247,7 +279,7 @@ class ExampleConsumer(object):
         :param str|unicode queue_name: The name of the queue to declare.
 
         """
-        print_flush('Declaring queue {}'.format(queue_name))
+        print_flush("Declaring queue {}".format(queue_name), log_level=logging.DEBUG)
         cb = partial(self.on_queue_declareok, userdata=queue_name)
         self._channel.queue_declare(queue=queue_name, callback=cb, auto_delete=True)
 
@@ -264,7 +296,7 @@ class ExampleConsumer(object):
         """
         queue_name = userdata
         self.set_qos()
-        #if self._is_heartbeat:
+        # if self._is_heartbeat:
         #    LOGGER.info('Binding %s to %s with %s', self.EXCHANGE, queue_name,
         #            self.ROUTING_KEY)
         #    cb = partial(self.on_bindok, userdata=queue_name)
@@ -273,7 +305,7 @@ class ExampleConsumer(object):
         #        self.EXCHANGE,
         #        routing_key=self.ROUTING_KEY,
         #        callback=cb)
-        #else:
+        # else:
         #    self.set_qos()
 
     def on_bindok(self, _unused_frame, userdata):
@@ -284,9 +316,9 @@ class ExampleConsumer(object):
         :param str|unicode userdata: Extra user data (queue name)
 
         """
-        print_flush('Queue bound: {}'.format(userdata))
+        print_flush("Queue bound: {}".format(userdata), log_level=logging.DEBUG)
         self.set_qos()
-    
+
     def set_qos(self):
         """This method sets up the consumer prefetch to only be delivered
         one message at a time. The consumer must acknowledge this message
@@ -295,7 +327,8 @@ class ExampleConsumer(object):
 
         """
         self._channel.basic_qos(
-            prefetch_count=self._prefetch_count, callback=self.on_basic_qos_ok)
+            prefetch_count=self._prefetch_count, callback=self.on_basic_qos_ok
+        )
 
     def on_basic_qos_ok(self, _unused_frame):
         """Invoked by pika when the Basic.QoS method has completed. At this
@@ -305,7 +338,9 @@ class ExampleConsumer(object):
         :param pika.frame.Method _unused_frame: The Basic.QosOk response frame
 
         """
-        print_flush('QOS set to: {}'.format(self._prefetch_count))
+        print_flush(
+            "QOS set to: {}".format(self._prefetch_count), log_level=logging.DEBUG
+        )
         self.start_consuming()
 
     def start_consuming(self):
@@ -318,20 +353,27 @@ class ExampleConsumer(object):
         will invoke when a message is fully received.
 
         """
-        print_flush('Issuing consumer related RPC commands')
+        print_flush("Issuing consumer related RPC commands", log_level=logging.DEBUG)
         self.add_on_cancel_callback()
         if self._is_heartbeat:
             self.schedule_next_message()
         else:
             self._consumer_tag = self._channel.basic_consume(
-                self._QUEUE, self.on_message)
+                self._QUEUE, self.on_message
+            )
             self.was_consuming = True
             self._consuming = True
-            
 
     def on_message(self, _unused_channel, basic_deliver, properties, body):
-        print_flush('Received message # {} from {}: {}'.format(basic_deliver.delivery_tag, properties.app_id, body))
-        self._loop.run_until_complete(self._message_callback(_unused_channel, basic_deliver, properties, body))
+        print_flush(
+            "Received message # {} from {}: {}".format(
+                basic_deliver.delivery_tag, properties.app_id, body
+            ),
+            log_level=logging.DEBUG,
+        )
+        self._loop.run_until_complete(
+            self._message_callback(_unused_channel, basic_deliver, properties, body)
+        )
 
     def add_on_cancel_callback(self):
         """Add a callback that will be invoked if RabbitMQ cancels the consumer
@@ -339,7 +381,7 @@ class ExampleConsumer(object):
         on_consumer_cancelled will be invoked by pika.
 
         """
-        print_flush('Adding consumer cancellation callback')
+        print_flush("Adding consumer cancellation callback", log_level=logging.DEBUG)
         self._channel.add_on_cancel_callback(self.on_consumer_cancelled)
 
     def on_consumer_cancelled(self, method_frame):
@@ -349,7 +391,10 @@ class ExampleConsumer(object):
         :param pika.frame.Method method_frame: The Basic.Cancel frame
 
         """
-        print_flush('Consumer was cancelled remotely, shutting down: {}'.format(method_frame))
+        print_flush(
+            "Consumer was cancelled remotely, shutting down: {}".format(method_frame),
+            log_level=logging.DEBUG,
+        )
         if self._channel:
             self._channel.close()
 
@@ -359,9 +404,11 @@ class ExampleConsumer(object):
 
         """
         if self._channel:
-            print_flush('Sending a Basic.Cancel RPC command to RabbitMQ')
-            cb = partial(
-                self.on_cancelok, userdata=self._consumer_tag)
+            print_flush(
+                "Sending a Basic.Cancel RPC command to RabbitMQ",
+                log_level=logging.DEBUG,
+            )
+            cb = partial(self.on_cancelok, userdata=self._consumer_tag)
             self._channel.basic_cancel(self._consumer_tag, cb)
 
     def on_cancelok(self, _unused_frame, userdata):
@@ -376,7 +423,11 @@ class ExampleConsumer(object):
         """
         self._consuming = False
         print_flush(
-            'RabbitMQ acknowledged the cancellation of the consumer: {}'.format(userdata))
+            "RabbitMQ acknowledged the cancellation of the consumer: {}".format(
+                userdata
+            ),
+            log_level=logging.DEBUG,
+        )
         self.close_channel()
 
     def close_channel(self):
@@ -384,28 +435,27 @@ class ExampleConsumer(object):
         Channel.Close RPC command.
 
         """
-        print_flush('Closing the channel')
+        print_flush("Closing the channel", log_level=logging.DEBUG)
         self._channel.close()
 
     def schedule_next_message(self):
         """If we are not closing our connection to RabbitMQ, schedule another
         message to be delivered in PUBLISH_INTERVAL seconds.
         """
-
-        print_flush('Scheduling next message for {} seconds'.format(self.PUBLISH_INTERVAL))
-        self._connection.ioloop.call_later(self.PUBLISH_INTERVAL,
-                                           self.send_heartbeat)
+        print_flush(
+            "Scheduling next message for {} seconds".format(self.PUBLISH_INTERVAL),
+            log_level=logging.DEBUG,
+        )
+        self._connection.ioloop.call_later(self.PUBLISH_INTERVAL, self.send_heartbeat)
 
     def send_heartbeat(self):
         if self._channel is None or not self._channel.is_open:
             return
-        properties = pika.BasicProperties(
-            app_id='mythic',
-            content_type='text/html')
-        self._channel.basic_publish(self.EXCHANGE, self.ROUTING_KEY,
-                                    "heartbeat".encode(),
-                                    properties)
-        print_flush('Published message')
+        properties = pika.BasicProperties(app_id="mythic", content_type="text/html")
+        self._channel.basic_publish(
+            self.EXCHANGE, self.ROUTING_KEY, "heartbeat".encode(), properties
+        )
+        print_flush("Published message", log_level=logging.DEBUG)
         self.schedule_next_message()
 
     def run(self):
@@ -429,13 +479,14 @@ class ExampleConsumer(object):
         """
         if not self._closing:
             self._closing = True
-            print_flush('Stopping')
+            print_flush("Stopping", log_level=logging.DEBUG)
             if self._consuming:
                 self.stop_consuming()
                 self._connection.ioloop.start()
             else:
                 self._connection.ioloop.stop()
-            print_flush('Stopped')
+            print_flush("Stopped", log_level=logging.DEBUG)
+
 
 class ReconnectingExampleConsumer(object):
     """This is an example consumer that will reconnect if the nested
@@ -443,15 +494,27 @@ class ReconnectingExampleConsumer(object):
 
     """
 
-    def __init__(self, amqp_url, hostname, message_callback, is_heartbeat: bool = False, routing_key: str = None):
+    def __init__(
+        self,
+        amqp_url,
+        hostname,
+        message_callback,
+        is_heartbeat: bool = False,
+        routing_key: str = None,
+    ):
         self._reconnect_delay = 0
         self._amqp_url = amqp_url
-        self._hostname = hostname 
+        self._hostname = hostname
         self._message_callback = message_callback
         self._is_heartbeat = is_heartbeat
         self._routing_key = routing_key
-        self._consumer = ExampleConsumer(self._amqp_url, hostname=hostname, message_callback=message_callback, is_heartbeat=is_heartbeat, routing_key=routing_key)
-        
+        self._consumer = ExampleConsumer(
+            self._amqp_url,
+            hostname=hostname,
+            message_callback=message_callback,
+            is_heartbeat=is_heartbeat,
+            routing_key=routing_key,
+        )
 
     def run(self):
         while True:
@@ -466,9 +529,15 @@ class ReconnectingExampleConsumer(object):
         if self._consumer.should_reconnect:
             self._consumer.stop()
             reconnect_delay = self._get_reconnect_delay()
-            LOGGER.warning('Reconnecting after %d seconds', reconnect_delay)
+            LOGGER.warning("Reconnecting after %d seconds", reconnect_delay)
             time.sleep(reconnect_delay)
-            self._consumer = ExampleConsumer(self._amqp_url, hostname=self._hostname, message_callback=self._message_callback, is_heartbeat=self._is_heartbeat, routing_key=self._routing_key)
+            self._consumer = ExampleConsumer(
+                self._amqp_url,
+                hostname=self._hostname,
+                message_callback=self._message_callback,
+                is_heartbeat=self._is_heartbeat,
+                routing_key=self._routing_key,
+            )
 
     def _get_reconnect_delay(self):
         if self._consumer.was_consuming:
@@ -478,6 +547,7 @@ class ReconnectingExampleConsumer(object):
         if self._reconnect_delay > 30:
             self._reconnect_delay = 30
         return self._reconnect_delay
+
 
 async def rabbit_c2_rpc_callback(_unused_channel, basic_deliver, properties, body):
     """Invoked by pika when a message is delivered from RabbitMQ. The
@@ -493,99 +563,168 @@ async def rabbit_c2_rpc_callback(_unused_channel, basic_deliver, properties, bod
     :param bytes body: The message body
 
     """
-    print_flush('Received message # {} from {}: {}'.format(
-                basic_deliver.delivery_tag, properties.app_id, body))
-    print_flush('Acknowledging message {}'.format(basic_deliver.delivery_tag))
+    print_flush(
+        "Received message # {} from {}: {}".format(
+            basic_deliver.delivery_tag, properties.app_id, body, log_level=logging.DEBUG
+        )
+    )
+    print_flush(
+        "Acknowledging message {}".format(basic_deliver.delivery_tag),
+        log_level=logging.DEBUG,
+    )
     _unused_channel.basic_ack(basic_deliver.delivery_tag)
 
     try:
-        print_flush("got message: {}".format(body.decode()))
+        print_flush("got message: {}".format(body.decode()), log_level=logging.DEBUG)
         request = json.loads(body.decode())
         if request["action"] == "exit_container":
-            print_flush("[*] Got exit container command, exiting!")
+            print_flush(
+                "[*] Got exit container command, exiting!", log_level=logging.CRITICAL
+            )
             sys.exit(1)
         response = await globals()[request["action"]](request["message"])
         if request["action"] != "translate_to_c2_format":
             response = json.dumps(response).encode()
         print_flush("sending response: {}".format(response))
     except Exception as e:
-        print_flush("[-] Error in trying to process a message from mythic: {}".format(str(e)))
+        print_flush(
+            "[-] Error in trying to process a message from mythic: {}".format(str(e)),
+            log_level=logging.CRITICAL,
+        )
         response = b""
     try:
-        print_flush("sending message back to mythic")
+        print_flush("sending message back to mythic", log_level=logging.DEBUG)
         response_props = pika.BasicProperties(
-            app_id='mythic',
+            app_id="mythic",
             correlation_id=properties.correlation_id,
-            content_type='application/json')
-        _unused_channel.basic_publish("", properties.reply_to,
-                                    response,
-                                    response_props)
-        print_flush("sent message back to mythic")
+            content_type="application/json",
+        )
+        _unused_channel.basic_publish("", properties.reply_to, response, response_props)
+        print_flush("sent message back to mythic", log_level=logging.DEBUG)
     except Exception as e:
         print_flush(
-            "[-] Exception trying to send message back to container for rpc! " + str(e)
+            "[-] Exception trying to send message back to container for rpc! " + str(e),
+            log_level=logging.CRITICAL,
         )
+
 
 def mythic_service():
     try:
         hostname = settings.get("name", "hostname")
         if hostname == "hostname":
             hostname = socket.gethostname()
-            print_flush("[*] Hostname specified as default 'hostname' value, thus will fetch and use the current hostname of the Docker container or computer\n")
-        print_flush("[*] Setting hostname (which should match payload type name exactly) to: " + hostname, override=True)
-        print_flush("[*] got Hostname, now to import c2 functions")
+            print_flush(
+                "[*] Hostname specified as default 'hostname' value, thus will fetch and use the current hostname of the Docker container or computer",
+                log_level=logging.INFO,
+                override=True,
+            )
+        print_flush(
+            "[*] Setting hostname (which should match payload type name exactly) to: "
+            + hostname,
+            override=True,
+        )
+        print_flush(
+            "[*] got Hostname, now to import c2 functions", log_level=logging.DEBUG
+        )
         import_all_c2_functions()
-        print_flush("[*] imported functions, now to start the connection loop")
-        print_flush("[*] about to try to connect_robust to rabbitmq")
-        host=settings.get("host", "127.0.0.1")
-        login=settings.get("username", "mythic_user")
-        password=settings.get("password", "mythic_password")
-        virtualhost=settings.get("virtual_host", "mythic_vhost")
-        port=settings.get("port", "5672")
-        amqp_url = f'amqp://{login}:{password}@{host}:{port}/{virtualhost}'
-        consumer = ReconnectingExampleConsumer(amqp_url, hostname, message_callback=rabbit_c2_rpc_callback)
-        print_flush("[*] starting service thread")
+        print_flush(
+            "[*] imported functions, now to start the connection loop",
+            log_level=logging.DEBUG,
+        )
+        print_flush(
+            "[*] about to try to connect_robust to rabbitmq", log_level=logging.INFO
+        )
+        host = settings.get("host", "127.0.0.1")
+        login = settings.get("username", "mythic_user")
+        password = settings.get("password", "mythic_password")
+        virtualhost = settings.get("virtual_host", "mythic_vhost")
+        port = settings.get("port", "5672")
+        amqp_url = f"amqp://{login}:{password}@{host}:{port}/{virtualhost}"
+        consumer = ReconnectingExampleConsumer(
+            amqp_url, hostname, message_callback=rabbit_c2_rpc_callback
+        )
+        print_flush("[*] starting service thread", log_level=logging.DEBUG)
         consumer.run()
-        print_flush("[*] service thread finished")
+        print_flush("[*] service thread finished", log_level=logging.DEBUG)
     except Exception as f:
-        print_flush("[-] Exception in main mythic_service, exiting: {}".format(str(f)), override=True)
+        print_flush(
+            "[-] Exception in main mythic_service, exiting: {}".format(str(f)),
+            log_level=logging.DEBUG,
+            override=True,
+        )
         sys.exit(1)
+
 
 def heartbeat_loop():
     try:
         hostname = settings.get("name", "hostname")
         if hostname == "hostname":
             hostname = socket.gethostname()
-            print_flush("[*] Hostname specified as default 'hostname' value, thus will fetch and use the current hostname of the Docker container or computer\n")
-        print_flush("[*] Setting hostname (which should match payload type name exactly) to: " + hostname, override=True)
+            print_flush(
+                "[*] Hostname specified as default 'hostname' value, thus will fetch and use the current hostname of the Docker container or computer\n"
+            )
+        print_flush(
+            "[*] Setting hostname (which should match payload type name exactly) to: "
+            + hostname,
+            override=True,
+        )
         import_all_c2_functions()
-        print_flush("[*] imported functions, now to start the connection loop")
-        print_flush("[*] about to try to connect_robust to rabbitmq")
-        host=settings.get("host", "127.0.0.1")
-        login=settings.get("username", "mythic_user")
-        password=settings.get("password", "mythic_password")
-        virtualhost=settings.get("virtual_host", "mythic_vhost")
-        port=settings.get("port", "5672")
-        amqp_url = f'amqp://{login}:{password}@{host}:{port}/{virtualhost}'
-        consumer = ReconnectingExampleConsumer(amqp_url, hostname, message_callback=rabbit_c2_rpc_callback, is_heartbeat=True, routing_key="tr.heartbeat.{}.{}".format(hostname, container_version))
-        print_flush("[*] starting heartbeat thread")
+        print_flush(
+            "[*] imported functions, now to start the connection loop",
+            log_level=logging.DEBUG,
+        )
+        print_flush(
+            "[*] about to try to connect_robust to rabbitmq", log_level=logging.INFO
+        )
+        host = settings.get("host", "127.0.0.1")
+        login = settings.get("username", "mythic_user")
+        password = settings.get("password", "mythic_password")
+        virtualhost = settings.get("virtual_host", "mythic_vhost")
+        port = settings.get("port", "5672")
+        amqp_url = f"amqp://{login}:{password}@{host}:{port}/{virtualhost}"
+        consumer = ReconnectingExampleConsumer(
+            amqp_url,
+            hostname,
+            message_callback=rabbit_c2_rpc_callback,
+            is_heartbeat=True,
+            routing_key="tr.heartbeat.{}.{}".format(hostname, container_version),
+        )
+        print_flush("[*] starting heartbeats", log_level=logging.INFO)
         consumer.run()
-        print_flush("[*] service thread finished")
+        print_flush(
+            "[*] service thread finished",
+            log_level=logging.ERROR,
+        )
     except Exception as f:
-        print_flush("[-] Exception in heartbeat_loop, exiting: {}".format(str(f)), override=True)
+        print_flush(
+            "[-] Exception in heartbeat_loop, exiting: {}".format(str(f)),
+            log_level=logging.ERROR,
+            override=True,
+        )
         sys.exit(1)
 
+
 def start_service_and_heartbeat():
-    global operating_environment
+    global LOG_LEVEL
     operating_environment = settings.get("environment", "production")
     if operating_environment == "production":
-        print_flush("[*] To enable debug logging, set `MYTHIC_ENVIRONMENT` variable to `testing`", override=True)
+        print_flush(
+            "[*] To enable info logging, set `MYTHIC_ENVIRONMENT` variable to `development`",
+            override=True,
+        )
+        print_flush(
+            "[*] To enable debug logging, set `MYTHIC_ENVIRONMENT` variable to `testing`",
+            override=True,
+        )
+    elif operating_environment == "development":
+        LOG_LEVEL = logging.INFO
+    else:
+        LOG_LEVEL = logging.DEBUG
+
     # start our service
-    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
     get_version_info()
-    print_flush("[*] Entered start_service")
     loop = asyncio.get_event_loop()
-    print_flush("[*] created task for mythic_service and heartbeat")
+    print_flush("[*] created task for mythic_service and heartbeat", override=True)
     thread1 = threading.Thread(target=mythic_service)
     thread2 = threading.Thread(target=heartbeat_loop)
     thread1.start()
@@ -593,8 +732,11 @@ def start_service_and_heartbeat():
     loop.run_forever()
     thread1.join()
     thread2.join()
-    print_flush("[*] finished loop.run_forever()")
+    print_flush("[*] finished loop.run_forever()", log_level=logging.CRITICAL)
+
 
 def get_version_info():
     print_flush("[*] Mythic Translator Version: " + container_version, override=True)
-    print_flush("[*] Mythic Translator PyPi version: " + container_pypi_version, override=True)
+    print_flush(
+        "[*] Mythic Translator PyPi version: " + container_pypi_version, override=True
+    )
