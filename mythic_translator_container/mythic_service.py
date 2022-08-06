@@ -21,15 +21,15 @@ LOG_FORMAT = (
 )
 LOGGER = logging.getLogger(__name__)
 
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+logging.basicConfig(level=logging.WARNING, format=LOG_FORMAT)
 
 LOG_LEVEL = logging.WARNING
 
 container_version = "4"
-container_pypi_version = "0.0.16"
+container_pypi_version = "0.0.18"
 
 
-def print_flush(msg, log_level: int = logging.INFO, override: bool = False):
+def print_flush(msg, log_level: int = LOG_LEVEL, override: bool = False):
     if log_level > LOG_LEVEL or override:
         if log_level == logging.INFO:
             logging.info(msg)
