@@ -1,3 +1,8 @@
+# Deprecated
+
+This PyPi package is deprecated in favor of the more generic `mythic-container` PyPi package and the https://github.com/MythicMeta/MythicContainerPyPi repository.
+
+
 # Mythic C2 Translator Container
 
 The `mythic_translator_container` package creates an easy way to get everything set up in a new translator container for a Mythic supported translation container. Mythic is a Command and Control (C2) framework for Red Teaming. The code is on GitHub (https://github.com/its-a-feature/Mythic) and the Mythic project's documentation is on GitBooks (https://docs.mythic-c2.net). This code will be included in the default Mythic translator containers, but is available for anybody making custom translator containers as well.
